@@ -2,6 +2,8 @@ package com.vocablearner;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+// Igual que en LexiconService: el ObjectMapper se crea a mano, no se
+// inyecta, porque esta app no incluye spring-boot-starter-web.
 import com.vocablearner.model.LexiconFile;
 import com.vocablearner.model.NewVocabItem;
 import com.vocablearner.model.VocabExtractionResult;
@@ -38,20 +40,19 @@ public class VocabLearnerApplication implements CommandLineRunner {
     private final LexiconService lexiconService;
     private final VocabExtractionService vocabExtractionService;
     private final LexiconBootstrapService lexiconBootstrapService;
-    private final ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper =
+            new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
 
     public VocabLearnerApplication(SrtParserService srtParserService,
                                     CandidateExtractor candidateExtractor,
                                     LexiconService lexiconService,
                                     VocabExtractionService vocabExtractionService,
-                                    LexiconBootstrapService lexiconBootstrapService,
-                                    ObjectMapper objectMapper) {
+                                    LexiconBootstrapService lexiconBootstrapService) {
         this.srtParserService = srtParserService;
         this.candidateExtractor = candidateExtractor;
         this.lexiconService = lexiconService;
         this.vocabExtractionService = vocabExtractionService;
         this.lexiconBootstrapService = lexiconBootstrapService;
-        this.objectMapper = objectMapper.copy().enable(SerializationFeature.INDENT_OUTPUT);
     }
 
     public static void main(String[] args) {

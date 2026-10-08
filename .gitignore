@@ -2,3 +2,4 @@ target/
 lexicon.json
 *_vocab.json
 .env
+local/

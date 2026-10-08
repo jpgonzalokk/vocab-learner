@@ -39,10 +39,7 @@ public class LexiconBootstrapService {
     }
 
     public LexiconFile generateInitialLexicon() {
-        return chatClient.prompt()
-                .system(SYSTEM_PROMPT)
-                .user("Genera la lista ahora.")
-                .call()
-                .entity(LexiconFile.class);
+        return StructuredOutput.call(chatClient, SYSTEM_PROMPT,
+                "Genera la lista ahora.", LexiconFile.class);
     }
 }

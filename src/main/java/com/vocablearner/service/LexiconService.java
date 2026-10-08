@@ -1,6 +1,7 @@
 package com.vocablearner.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.vocablearner.model.LexiconFile;
 import org.springframework.stereotype.Service;
 
@@ -14,13 +15,12 @@ import java.util.TreeSet;
 @Service
 public class LexiconService {
 
-    private final ObjectMapper objectMapper;
-
-    public LexiconService(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper.copy().enable(
-                com.fasterxml.jackson.databind.SerializationFeature.INDENT_OUTPUT
-        );
-    }
+    // Se crea aqui mismo, sin depender de que Spring lo inyecte: al no usar
+    // spring-boot-starter-web, Spring Boot no registra un bean ObjectMapper
+    // automaticamente (esa autoconfiguracion requiere una clase de
+    // spring-web que esta app no incluye a proposito).
+    private final ObjectMapper objectMapper =
+            new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
 
     /** Carga el lexico. Si el fichero no existe, devuelve un set vacio. */
     public Set<String> load(Path path) throws IOException {

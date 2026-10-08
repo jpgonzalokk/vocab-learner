@@ -96,10 +96,7 @@ public class VocabExtractionService {
                 %s
                 """.formatted(lexiconBlock, candidatesBlock, truncatedText);
 
-        return chatClient.prompt()
-                .system(SYSTEM_PROMPT)
-                .user(userMessage)
-                .call()
-                .entity(VocabExtractionResult.class);
+        return StructuredOutput.call(chatClient, SYSTEM_PROMPT,
+                userMessage, VocabExtractionResult.class);
     }
 }
