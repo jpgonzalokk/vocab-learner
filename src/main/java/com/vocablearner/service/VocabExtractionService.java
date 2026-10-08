@@ -1,9 +1,18 @@
 package com.vocablearner.service;
 
+import com.vocablearner.model.NewVocabItem;
 import com.vocablearner.model.VocabExtractionResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.anthropic.AnthropicCacheOptions;
+import org.springframework.ai.anthropic.AnthropicCacheStrategy;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -11,11 +20,16 @@ import java.util.stream.Collectors;
 @Service
 public class VocabExtractionService {
 
-    // Si el guion es muy largo, se trunca para mantener la llamada rapida y
-    // barata; la deteccion de vocabulario individual no se ve afectada
-    // porque usa la lista de candidatas completa, solo la deteccion de
-    // phrasal verbs al final de peliculas muy largas podria perderse un poco.
-    private static final int MAX_TEXT_CHARS = 60_000;
+    private static final Logger log = LoggerFactory.getLogger(VocabExtractionService.class);
+
+    // El guion se procesa por trozos: de una sola vez la respuesta (una
+    // entrada JSON por palabra nueva) supera max-tokens y llega cortada.
+    private static final int MAX_CHUNK_CHARS = 12_000;
+    private static final int MAX_CANDIDATES_PER_CHUNK = 120;
+
+    private static final AnthropicCacheOptions CACHE_SYSTEM = AnthropicCacheOptions.builder()
+            .strategy(AnthropicCacheStrategy.SYSTEM_ONLY)
+            .build();
 
     private static final String SYSTEM_PROMPT = """
             Eres un asistente especializado en linguistica inglesa para un \
@@ -75,28 +89,103 @@ public class VocabExtractionService {
                                           Map<String, String> candidates,
                                           String fullText) {
 
-        String truncatedText = fullText.length() > MAX_TEXT_CHARS
-                ? fullText.substring(0, MAX_TEXT_CHARS)
-                : fullText;
+        // El lexico va en el system prompt, que es identico en todas las
+        // llamadas de esta pelicula: asi se cachea y los trozos 2..N lo leen
+        // de la cache en vez de pagarlo entero cada vez.
+        String system = SYSTEM_PROMPT + """
 
-        String candidatesBlock = candidates.entrySet().stream()
+                LEXICON (palabras ya conocidas, una por linea):
+                %s
+                """.formatted(String.join("\n", lexicon));
+        List<Chunk> chunks = split(candidates, fullText);
+
+        // Se deduplica por lema: un mismo lema puede salir en varios trozos
+        // (sobre todo phrasal verbs, que no estan repartidos de antemano).
+        Map<String, NewVocabItem> words = new LinkedHashMap<>();
+        Map<String, NewVocabItem> phrasalVerbs = new LinkedHashMap<>();
+
+        for (int i = 0; i < chunks.size(); i++) {
+            Chunk chunk = chunks.get(i);
+            log.info("  Trozo {}/{}: {} candidatas, {} caracteres",
+                    i + 1, chunks.size(), chunk.candidates().size(), chunk.text().length());
+
+            VocabExtractionResult partial = extractChunk(system, chunk);
+            addAll(words, partial.newWords());
+            addAll(phrasalVerbs, partial.newPhrasalVerbs());
+        }
+
+        return new VocabExtractionResult(
+                new ArrayList<>(words.values()),
+                new ArrayList<>(phrasalVerbs.values()));
+    }
+
+    private VocabExtractionResult extractChunk(String system, Chunk chunk) {
+        String candidatesBlock = chunk.candidates().entrySet().stream()
                 .map(e -> e.getKey() + " -> " + e.getValue())
                 .collect(Collectors.joining("\n"));
 
-        String lexiconBlock = String.join("\n", lexicon);
-
         String userMessage = """
-                LEXICON (palabras ya conocidas, una por linea):
-                %s
-
                 CANDIDATE_WORDS (palabra -> frase de ejemplo):
                 %s
 
                 FULL_TEXT (para detectar phrasal verbs en contexto):
                 %s
-                """.formatted(lexiconBlock, candidatesBlock, truncatedText);
+                """.formatted(candidatesBlock, chunk.text());
 
-        return StructuredOutput.call(chatClient, SYSTEM_PROMPT,
-                userMessage, VocabExtractionResult.class);
+        return StructuredOutput.call(chatClient, system,
+                userMessage, VocabExtractionResult.class,
+                AnthropicChatOptions.builder().cacheOptions(CACHE_SYSTEM));
+    }
+
+    /**
+     * Parte el guion en trozos consecutivos de lineas. Cada candidata va al
+     * trozo donde esta su frase de ejemplo (su primera aparicion), asi Claude
+     * ve el contexto real. Se corta el trozo cuando supera el tamano de texto
+     * o el numero de candidatas, para que la respuesta quepa en max-tokens.
+     */
+    private static List<Chunk> split(Map<String, String> candidates, String fullText) {
+        // frase de ejemplo -> candidatas cuya primera aparicion es esa linea
+        Map<String, List<String>> candidatesByLine = new LinkedHashMap<>();
+        candidates.forEach((word, line) ->
+                candidatesByLine.computeIfAbsent(line, k -> new ArrayList<>()).add(word));
+
+        List<Chunk> chunks = new ArrayList<>();
+        StringBuilder text = new StringBuilder();
+        Map<String, String> chunkCandidates = new LinkedHashMap<>();
+
+        for (String line : fullText.split("\n")) {
+            text.append(line).append('\n');
+            List<String> words = candidatesByLine.remove(line.strip());
+            if (words != null) {
+                words.forEach(w -> chunkCandidates.put(w, candidates.get(w)));
+            }
+            if (text.length() >= MAX_CHUNK_CHARS
+                    || chunkCandidates.size() >= MAX_CANDIDATES_PER_CHUNK) {
+                chunks.add(new Chunk(new LinkedHashMap<>(chunkCandidates), text.toString()));
+                text.setLength(0);
+                chunkCandidates.clear();
+            }
+        }
+        // Candidatas cuya linea no se encontro tal cual (no deberia pasar)
+        candidatesByLine.values().forEach(ws ->
+                ws.forEach(w -> chunkCandidates.put(w, candidates.get(w))));
+        if (!text.isEmpty() || !chunkCandidates.isEmpty()) {
+            chunks.add(new Chunk(new LinkedHashMap<>(chunkCandidates), text.toString()));
+        }
+        return chunks;
+    }
+
+    private static void addAll(Map<String, NewVocabItem> target, List<NewVocabItem> items) {
+        if (items == null) {
+            return;
+        }
+        for (NewVocabItem item : items) {
+            if (item != null && item.lemma() != null) {
+                target.putIfAbsent(item.lemma().toLowerCase().strip(), item);
+            }
+        }
+    }
+
+    private record Chunk(Map<String, String> candidates, String text) {
     }
 }
