@@ -5,6 +5,7 @@ spring:
   ai:
     anthropic:
       api-key: ${ANTHROPIC_API_KEY}
+      timeout: 5m   # las respuestas largas (bootstrap, guiones largos) superan el timeout por defecto
       chat:
         options:
           model: claude-haiku-5-5
