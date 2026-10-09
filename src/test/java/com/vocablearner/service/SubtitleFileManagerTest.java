@@ -20,23 +20,23 @@ class SubtitleFileManagerTest {
     void creaLosTresDirectoriosSiNoExisten() throws Exception {
         new SubtitleFileManager(root).ensureDirectories();
 
-        assertTrue(Files.isDirectory(root.resolve("input")));
+        assertTrue(Files.isDirectory(root.resolve("processed")));
         assertTrue(Files.isDirectory(root.resolve("error")));
         assertTrue(Files.isDirectory(root.resolve("output")));
     }
 
     @Test
-    void moveToInputMueveElSrtYSobreescribeSiYaExiste() throws Exception {
+    void moveToProcessedMueveElSrtYSobreescribeSiYaExiste() throws Exception {
         SubtitleFileManager manager = new SubtitleFileManager(root);
         manager.ensureDirectories();
 
         Path srt = root.resolve("pelicula.srt");
         Files.writeString(srt, "nuevo", StandardCharsets.UTF_8);
-        Files.writeString(root.resolve("input").resolve("pelicula.srt"), "viejo", StandardCharsets.UTF_8);
+        Files.writeString(root.resolve("processed").resolve("pelicula.srt"), "viejo", StandardCharsets.UTF_8);
 
-        Path destino = manager.moveToInput(srt);
+        Path destino = manager.moveToProcessed(srt);
 
-        assertEquals(root.resolve("input").resolve("pelicula.srt"), destino);
+        assertEquals(root.resolve("processed").resolve("pelicula.srt"), destino);
         assertFalse(Files.exists(srt));
         assertEquals("nuevo", Files.readString(destino, StandardCharsets.UTF_8));
     }

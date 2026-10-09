@@ -18,8 +18,9 @@ La aplicación debe asegurar o crear automáticamente la siguiente estructura si
 ## 3. Estrategia Test-First (TDD)
 * **Comando de Test:** `mvn test` (Maven, Java 17, JUnit 5 vía `spring-boot-starter-test`).
 * [x] **Fase Roja (Test Falla):** tests escritos, `mvn test` falla por compilación (`SubtitleFileManager` no existe).
-* [ ] **Test de Aislamiento:** Validar que si el archivo no existe, el programa termine con código de error sin mover nada.
-* [ ] **Test de Éxito:** Simular un procesamiento correcto y verificar que el `.srt` termine en `./input/` y el resultado en `./output/`.
+* [x] **Fase Verde (Código):** `SubtitleFileManager` implementado y `runProcess` integrado. `mvn test`: 6 tests, 0 fallos.
+* [x] **Test de Aislamiento:** Validar que si el archivo no existe, el programa termine con código de error sin mover nada.
+* [x] **Test de Éxito:** Simular un procesamiento correcto y verificar que el `.srt` termine en `./input/` y el resultado en `./output/`.
 
 ## 4. Diseño Técnico (propuesta, pendiente de aprobación)
 

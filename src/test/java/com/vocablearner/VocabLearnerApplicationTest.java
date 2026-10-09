@@ -27,7 +27,7 @@ import static org.mockito.Mockito.when;
 @SpringBootTest
 class VocabLearnerApplicationTest {
 
-    // Directorio raiz de input/, error/ y output/ para todos los tests de esta clase.
+    // Directorio raiz de processed/, error/ y output/ para todos los tests de esta clase.
     @TempDir
     static Path root;
 
@@ -58,7 +58,7 @@ class VocabLearnerApplicationTest {
         assertThrows(IllegalArgumentException.class,
                 () -> app.run("process", inexistente.toString(), lexicon.toString()));
 
-        assertFalse(Files.exists(root.resolve("input").resolve("no_existe.srt")));
+        assertFalse(Files.exists(root.resolve("processed").resolve("no_existe.srt")));
         assertFalse(Files.exists(root.resolve("error").resolve("no_existe.srt")));
     }
 
@@ -77,7 +77,7 @@ class VocabLearnerApplicationTest {
         app.run("process", srt.toString(), lexicon.toString());
 
         assertFalse(Files.exists(srt));
-        assertTrue(Files.exists(root.resolve("input").resolve("exito.srt")));
+        assertTrue(Files.exists(root.resolve("processed").resolve("exito.srt")));
         assertTrue(Files.exists(root.resolve("output").resolve("exito_vocab.json")));
     }
 }

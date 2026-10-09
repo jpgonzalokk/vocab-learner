@@ -12,6 +12,7 @@ import com.vocablearner.service.CandidateExtractor;
 import com.vocablearner.service.LexiconBootstrapService;
 import com.vocablearner.service.LexiconService;
 import com.vocablearner.service.SrtParserService;
+import com.vocablearner.service.SubtitleFileManager;
 import com.vocablearner.service.VocabExtractionService;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
@@ -30,8 +31,8 @@ import java.util.Set;
  *   Generar el lexico inicial (solo la primera vez):
  *     java -jar vocab-learner.jar bootstrap [lexicon.json]
  *
- *   Procesar una pelicula:
- *     java -jar vocab-learner.jar process pelicula.srt [lexicon.json] [salida.json]
+ *   Procesar una pelicula (el .srt se mueve a processed/ o error/; la salida va a output/):
+ *     java -jar vocab-learner.jar process pelicula.srt [lexicon.json]
  *
  *   Exportar un *_vocab.json a formato Anki (.txt, tabulador):
  *     java -jar vocab-learner.jar export pelicula_vocab.json [salida.txt]
@@ -45,6 +46,7 @@ public class VocabLearnerApplication implements CommandLineRunner {
     private final VocabExtractionService vocabExtractionService;
     private final LexiconBootstrapService lexiconBootstrapService;
     private final AnkiExporter ankiExporter;
+    private final SubtitleFileManager fileManager;
     private final ObjectMapper objectMapper =
             new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
 
@@ -53,17 +55,29 @@ public class VocabLearnerApplication implements CommandLineRunner {
                                     LexiconService lexiconService,
                                     VocabExtractionService vocabExtractionService,
                                     LexiconBootstrapService lexiconBootstrapService,
-                                    AnkiExporter ankiExporter) {
+                                    AnkiExporter ankiExporter,
+                                    SubtitleFileManager fileManager) {
         this.srtParserService = srtParserService;
         this.candidateExtractor = candidateExtractor;
         this.lexiconService = lexiconService;
         this.vocabExtractionService = vocabExtractionService;
         this.lexiconBootstrapService = lexiconBootstrapService;
         this.ankiExporter = ankiExporter;
+        this.fileManager = fileManager;
     }
 
     public static void main(String[] args) {
-        SpringApplication.run(VocabLearnerApplication.class, args);
+        try {
+            SpringApplication.run(VocabLearnerApplication.class, args);
+        } catch (Exception e) {
+            // Spring envuelve los errores de run() en otra excepcion: mostramos la causa real.
+            Throwable causa = e;
+            while (causa.getCause() != null) {
+                causa = causa.getCause();
+            }
+            System.err.println("Error: " + causa.getMessage());
+            System.exit(1);
+        }
     }
 
     @Override
@@ -96,18 +110,35 @@ public class VocabLearnerApplication implements CommandLineRunner {
         System.out.printf("Lexico inicial guardado en %s (%d palabras).%n", lexiconPath, words.size());
     }
 
-    private void runProcess(String[] args) throws IOException {
+    private void runProcess(String[] args) throws Exception {
         if (args.length < 2) {
             printUsage();
             return;
         }
 
         Path srtPath = Path.of(args[1]);
-        Path lexiconPath = Path.of(args.length > 2 ? args[2] : "lexicon.json");
-        Path outputPath = Path.of(args.length > 3
-                ? args[3]
-                : srtPath.getFileName().toString().replaceAll("\\.srt$", "") + "_vocab.json");
+        // Validar antes de tocar nada: si el .srt no existe, no se mueve ningun fichero.
+        fileManager.validateSrt(srtPath);
+        fileManager.ensureDirectories();
 
+        Path lexiconPath = Path.of(args.length > 2 ? args[2] : "lexicon.json");
+        Path outputPath = fileManager.outputDir()
+                .resolve(srtPath.getFileName().toString().replaceAll("\\.srt$", "") + "_vocab.json");
+
+        try {
+            procesar(srtPath, lexiconPath, outputPath);
+        } catch (Exception e) {
+            try {
+                fileManager.moveToError(srtPath);
+            } catch (IOException moveError) {
+                e.addSuppressed(moveError);
+            }
+            throw e;
+        }
+        fileManager.moveToProcessed(srtPath);
+    }
+
+    private void procesar(Path srtPath, Path lexiconPath, Path outputPath) throws IOException {
         System.out.println("Leyendo " + srtPath + "...");
         String text = srtParserService.toPlainText(srtPath);
 
@@ -157,11 +188,12 @@ public class VocabLearnerApplication implements CommandLineRunner {
             return;
         }
 
+        fileManager.ensureDirectories();
         Path vocabPath = Path.of(args[1]);
         String nombre = vocabPath.getFileName().toString().replaceAll("(_vocab)?\\.json$", "");
-        Path outputPath = Path.of(args.length > 2
-                ? args[2]
-                : nombre + "anki_vocab.txt");
+        Path outputPath = args.length > 2
+                ? Path.of(args[2])
+                : fileManager.outputDir().resolve(nombre + "anki_vocab.txt");
 
         System.out.println("Exportando " + vocabPath + " a formato Anki...");
         ankiExporter.export(vocabPath, outputPath);
@@ -174,9 +206,9 @@ public class VocabLearnerApplication implements CommandLineRunner {
                   bootstrap [lexicon.json]
                       Genera el lexico inicial de 2000 palabras basicas.
 
-                  process <pelicula.srt> [lexicon.json] [salida.json]
+                  process <pelicula.srt> [lexicon.json]
                       Procesa una pelicula: detecta vocabulario nuevo,
-                      lo traduce y actualiza el lexico.
+                      lo traduce y actualiza el lexico. El resultado va a output/.
 
                   export <pelicula_vocab.json> [salida.txt]
                       Exporta el vocabulario a un TXT para importar en Anki.
