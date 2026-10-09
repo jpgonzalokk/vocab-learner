@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.vocablearner.model.LexiconFile;
 import com.vocablearner.model.NewVocabItem;
 import com.vocablearner.model.VocabExtractionResult;
+import com.vocablearner.service.AnkiExporter;
 import com.vocablearner.service.CandidateExtractor;
 import com.vocablearner.service.LexiconBootstrapService;
 import com.vocablearner.service.LexiconService;
@@ -31,6 +32,9 @@ import java.util.Set;
  *
  *   Procesar una pelicula:
  *     java -jar vocab-learner.jar process pelicula.srt [lexicon.json] [salida.json]
+ *
+ *   Exportar un *_vocab.json a formato Anki (.txt, tabulador):
+ *     java -jar vocab-learner.jar export pelicula_vocab.json [salida.txt]
  */
 @SpringBootApplication
 public class VocabLearnerApplication implements CommandLineRunner {
@@ -40,6 +44,7 @@ public class VocabLearnerApplication implements CommandLineRunner {
     private final LexiconService lexiconService;
     private final VocabExtractionService vocabExtractionService;
     private final LexiconBootstrapService lexiconBootstrapService;
+    private final AnkiExporter ankiExporter;
     private final ObjectMapper objectMapper =
             new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
 
@@ -47,12 +52,14 @@ public class VocabLearnerApplication implements CommandLineRunner {
                                     CandidateExtractor candidateExtractor,
                                     LexiconService lexiconService,
                                     VocabExtractionService vocabExtractionService,
-                                    LexiconBootstrapService lexiconBootstrapService) {
+                                    LexiconBootstrapService lexiconBootstrapService,
+                                    AnkiExporter ankiExporter) {
         this.srtParserService = srtParserService;
         this.candidateExtractor = candidateExtractor;
         this.lexiconService = lexiconService;
         this.vocabExtractionService = vocabExtractionService;
         this.lexiconBootstrapService = lexiconBootstrapService;
+        this.ankiExporter = ankiExporter;
     }
 
     public static void main(String[] args) {
@@ -69,6 +76,7 @@ public class VocabLearnerApplication implements CommandLineRunner {
         switch (args[0]) {
             case "bootstrap" -> runBootstrap(args);
             case "process" -> runProcess(args);
+            case "export" -> runExport(args);
             default -> printUsage();
         }
     }
@@ -143,6 +151,23 @@ public class VocabLearnerApplication implements CommandLineRunner {
         System.out.printf("Lexico actualizado: %d palabras en total (%s).%n", lexicon.size(), lexiconPath);
     }
 
+    private void runExport(String[] args) throws IOException {
+        if (args.length < 2) {
+            printUsage();
+            return;
+        }
+
+        Path vocabPath = Path.of(args[1]);
+        String nombre = vocabPath.getFileName().toString().replaceAll("(_vocab)?\\.json$", "");
+        Path outputPath = Path.of(args.length > 2
+                ? args[2]
+                : nombre + "anki_vocab.txt");
+
+        System.out.println("Exportando " + vocabPath + " a formato Anki...");
+        ankiExporter.export(vocabPath, outputPath);
+        System.out.println("Anki guardado en " + outputPath);
+    }
+
     private void printUsage() {
         System.out.println("""
                 Uso:
@@ -152,6 +177,9 @@ public class VocabLearnerApplication implements CommandLineRunner {
                   process <pelicula.srt> [lexicon.json] [salida.json]
                       Procesa una pelicula: detecta vocabulario nuevo,
                       lo traduce y actualiza el lexico.
+
+                  export <pelicula_vocab.json> [salida.txt]
+                      Exporta el vocabulario a un TXT para importar en Anki.
                 """);
     }
 }
