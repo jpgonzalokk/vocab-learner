@@ -1,0 +1,17 @@
+spring:
+  main:
+    web-application-type: none   # es una app de linea de comandos, sin servidor web
+    banner-mode: off
+  ai:
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY}
+      timeout: 5m   # las respuestas largas (bootstrap, guiones largos) superan el timeout por defecto
+      chat:
+        options:
+          model: claude-haiku-5-5
+          max-tokens: 18192
+
+logging:
+  level:
+    root: WARN
+    com.vocablearner: INFO
